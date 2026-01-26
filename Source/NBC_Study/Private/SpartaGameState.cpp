@@ -9,31 +9,59 @@
 #include "SpartaPlayerController.h"
 #include "Components/TextBlock.h"
 #include "Blueprint/UserWidget.h"
+#include "LevelManager.h"
 
 ASpartaGameState::ASpartaGameState()
 {
     Score = 0;
     SpawnedCoinCount = 0;
     CollectedCoinCount = 0;
-    LevelDuration = 30.0f; // 한 레벨당 30초
     CurrentLevelIndex = 0;
-    MaxLevels = 3;
+    MaxLevels = 0;
 }
 
 void ASpartaGameState::BeginPlay()
 {
     Super::BeginPlay();
 
-    UpdateHUD();
-    StartLevel();
+    if (LevelItemDataTable)
+    {
+        LevelManager = NewObject<ULevelManager>(this);
+        if (!LevelManager) 
+        {
+            UE_LOG(LogTemp, Error, TEXT("SpartaGameState::BeginPlay - Failed to create LevelManager!"));
+            return;
+        }
 
-    GetWorldTimerManager().SetTimer(
-        HUDUpdateTimerHandle,
-        this,
-        &ASpartaGameState::UpdateHUD,
-        0.1f,
-        true
-    );
+        TArray<AActor*> FoundVolumes;
+        UGameplayStatics::GetAllActorsOfClass(GetWorld(), ASpawnVolume::StaticClass(), FoundVolumes);
+        
+        ASpawnVolume* SpawnVolume = FoundVolumes.Num() > 0 ? Cast<ASpawnVolume>(FoundVolumes[0]) : nullptr;
+        if (!SpawnVolume)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("SpartaGameState::BeginPlay - No SpawnVolume found in level!"));
+        }
+
+        LevelManager->Initialize(LevelItemDataTable, SpawnVolume, GetGameInstance());
+
+        LevelManager->OnLevelComplete.AddDynamic(this, &ASpartaGameState::HandleLevelComplete);
+        LevelManager->OnItemSpawned.AddDynamic(this, &ASpartaGameState::HandleItemSpawned);
+
+        StartLevel();
+
+        GetWorldTimerManager().SetTimer(
+            HUDUpdateTimerHandle,
+            this,
+            &ASpartaGameState::UpdateHUD,
+            0.1f,
+            true
+        );
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("SpartaGameState::BeginPlay - LevelItemDataTable is not assigned!"));
+    }
+
 }
 
 int32 ASpartaGameState::GetScore() const
@@ -65,6 +93,39 @@ void ASpartaGameState::OnGameOver()
     }
 }
 
+void ASpartaGameState::HandleLevelComplete()
+{
+    bool bHasNextLevel = false;
+
+    if (LevelManager)
+    {
+        bHasNextLevel = LevelManager->EndLevel();
+    }
+
+    AddScore(Score);
+
+    UpdateHUD();
+
+    if (!bHasNextLevel)
+    {
+        // 게임 오버
+        OnGameOver();
+        return;
+    }
+
+    CurrentLevelIndex = LevelManager->GetCurrentLevelIndex();
+    if (LevelMapNames.IsValidIndex(CurrentLevelIndex))
+    {
+        FName NextLevelName = LevelMapNames[CurrentLevelIndex];
+        UE_LOG(LogTemp, Warning, TEXT("Loading next level: %s"), *NextLevelName.ToString());
+        UGameplayStatics::OpenLevel(GetWorld(), NextLevelName);
+    }
+    else
+    {
+        OnGameOver();
+    }
+}
+
 void ASpartaGameState::StartLevel()
 {
     if (APlayerController* PlayerController = GetWorld()->GetFirstPlayerController())
@@ -76,50 +137,17 @@ void ASpartaGameState::StartLevel()
         }
     }   
 
-    if (UGameInstance* GameInstance = GetGameInstance())
-    {
-        USpartaGameInstance* SpartaGameInstance = Cast<USpartaGameInstance>(GameInstance);
-        if (SpartaGameInstance)
-        {
-            CurrentLevelIndex = SpartaGameInstance->CurrentLevelIndex;
-        }
-    }
 
     // 레벨 시작 시, 코인 개수 초기화
     SpawnedCoinCount = 0;
     CollectedCoinCount = 0;
 
-    // 현재 맵에 배치된 모든 SpawnVolume을 찾아 아이템 40개를 스폰
-    TArray<AActor*> FoundVolumes;
-    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ASpawnVolume::StaticClass(), FoundVolumes);
-
-    const int32 ItemsToSpawn = 40;
-
-    for (int32 i = 0; i < ItemsToSpawn; ++i)
+    if (LevelManager)
     {
-        if (FoundVolumes.Num() > 0)
-        {
-            ASpawnVolume* SpawnVolume = Cast<ASpawnVolume>(FoundVolumes[0]);
-            if (SpawnVolume)
-            {
-                AActor* SpawnedActor = SpawnVolume->SpawnRandomItem();
-                // 만약 스폰된 엑터가 코인 타입이라면 SpawnedCoinCount 증가
-                if (SpawnedActor && SpawnedActor->IsA(ACoinItem::StaticClass()))
-                {
-                    SpawnedCoinCount++;
-                }
-            }
-        }
+        LevelManager->StartLevel();
+        // LevelManager가 GameInstance에서 로드한 인덱스를 가져옴
+        CurrentLevelIndex = LevelManager->GetCurrentLevelIndex();
     }
-
-    // 30초 후에 OnLevelTimeUp() 가 호출되도록 타이머 설정
-    GetWorldTimerManager().SetTimer(
-        LevelTimerHandle,
-        this,
-        &ASpartaGameState::OnLevelTimeUp,
-        LevelDuration,
-        false
-    );
 
     UpdateHUD();
 
@@ -130,10 +158,19 @@ void ASpartaGameState::StartLevel()
 
 }
 
-void ASpartaGameState::OnLevelTimeUp()
+void ASpartaGameState::HandleItemSpawned(AActor* SpawnedItem)
 {
-    // 시간이 다 되면, 레벨을 종료
-    EndLevel();
+    if (SpawnedItem)
+    {
+        if (SpawnedItem->GetClass()->IsChildOf(ACoinItem::StaticClass()))
+        {
+            SpawnedCoinCount++;
+        }
+    }
+    else 
+    {
+        UE_LOG(LogTemp, Warning, TEXT("SpartaGameState::HandleItemSpawned - SpawnedItem is null!"));
+    }
 }
 
 void ASpartaGameState::OnCoinCollected()
@@ -145,46 +182,10 @@ void ASpartaGameState::OnCoinCollected()
         SpawnedCoinCount
     );
 
-    // 현재 레벨에서 스폰된 코인을 전부 주웠다면 즉시 레벨 종료
     if (SpawnedCoinCount > 0 && CollectedCoinCount >= SpawnedCoinCount)
     {
-        EndLevel();
+        HandleLevelComplete();
     }
-}
-
-void ASpartaGameState::EndLevel()
-{
-    // 타이머 해제
-    GetWorldTimerManager().ClearTimer(LevelTimerHandle);
-
-    if (UGameInstance* GameInstance = GetGameInstance())
-    {
-        USpartaGameInstance* SpartaGameInstance = Cast<USpartaGameInstance>(GameInstance);
-        if (SpartaGameInstance)
-        {
-            AddScore(Score);
-            CurrentLevelIndex++;
-            SpartaGameInstance->CurrentLevelIndex = CurrentLevelIndex;
-        }
-    }
-
-    if (CurrentLevelIndex >= MaxLevels)
-    {
-        OnGameOver();
-        return;
-    }
-
-    // 레벨 맵 이름이 있다면 해당 맵 불러오기
-    if (LevelMapNames.IsValidIndex(CurrentLevelIndex))
-    {
-        FName NextLevelName = LevelMapNames[CurrentLevelIndex];
-        UGameplayStatics::OpenLevel(GetWorld(), NextLevelName);
-    }
-    else
-    {
-        OnGameOver();
-    }
-
 }
 
 void ASpartaGameState::UpdateHUD()
@@ -198,7 +199,7 @@ void ASpartaGameState::UpdateHUD()
             {
                 if (UTextBlock* TimeText = Cast<UTextBlock>(HUDWidget->GetWidgetFromName(TEXT("Time"))))
                 {
-                    float RemainingTime = GetWorldTimerManager().GetTimerRemaining(LevelTimerHandle);
+                    float RemainingTime = LevelManager ? LevelManager->GetRemainingTime() : 0.0f;
                     TimeText->SetText(FText::FromString(FString::Printf(TEXT("Time: %.1f"), RemainingTime)));
                 }
 
