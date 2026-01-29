@@ -10,6 +10,7 @@
 class USpringArmComponent;
 class UCameraComponent;
 class UWidgetComponent;
+class UDebuffManagerComponent;
 
 // Enhanced Input에서 액션 값 받을 때 사용하는 구조체
 struct FInputActionValue;
@@ -78,7 +79,27 @@ protected:
         class AController* EventInstigator, AActor* DamageCauser) override;
 
 private:
-    float NormalSpeed; // 기본 걷기 속도
-    float SprintSpeedMultiplier;  // "기본 속도" 대비 몇 배로 빠르게 달릴지 결정
-    float SprintSpeed; 	// 실제 스프린트 속도
+    float NormalSpeed;
+    float SprintSpeedMultiplier;
+    float SprintSpeed;
+    bool bIsSprinting;
+
+#pragma region Debuff
+    bool bIsInputReversed = false;
+public:
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debuff")
+    UDebuffManagerComponent* DebuffManager;
+
+    UFUNCTION(BlueprintCallable, Category = "Debuff")
+    void SetInputReversed(bool bReversed) { bIsInputReversed = bReversed; }
+
+    UFUNCTION(BlueprintPure, Category = "Debuff")
+    bool IsInputReversed() const { return bIsInputReversed; }
+
+    UFUNCTION(BlueprintPure, Category = "Movement")
+    bool IsSprinting() const { return bIsSprinting; }
+
+    UFUNCTION(BlueprintPure, Category = "Movement")
+    float GetNormalSpeed() const { return NormalSpeed; }
+#pragma endregion Debuff
 };

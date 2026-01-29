@@ -28,6 +28,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Spawning")
     UDataTable* ItemDataTable;
 
+#pragma region Spawning
     // 스폰 볼륨 내에서 무작위 좌표를 얻어 오는 함수
     UFUNCTION(BlueprintCallable, Category = "Spawning")
     FVector GetRandomPointInVolume() const;
@@ -39,4 +40,13 @@ public:
     AActor* SpawnItem(TSubclassOf<AActor> ItemClass);
 
     FItemSpawnRow* GetRandomItem() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Spawning")
+    void ClearAllSpawnedItems();
+
+protected:
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spawning")
+    TArray<AActor*> SpawnedItems;
+
+#pragma endregion Spawning
 };

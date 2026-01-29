@@ -57,6 +57,11 @@ AActor* ASpawnVolume::SpawnItem(TSubclassOf<AActor> ItemClass)
         FRotator::ZeroRotator
     );
 
+    if (SpawnedActor)
+    {
+        SpawnedItems.Add(SpawnedActor);
+    }
+
     return SpawnedActor;
 }
 
@@ -96,4 +101,20 @@ FItemSpawnRow* ASpawnVolume::GetRandomItem() const
     }
 
     return nullptr;
+}
+
+void ASpawnVolume::ClearAllSpawnedItems()
+{
+    for (int32 i = SpawnedItems.Num() - 1; i >= 0; --i)
+    {
+        if (AActor* SpawnedItem = SpawnedItems[i])
+        {
+            if (IsValid(SpawnedItem))
+            {
+                SpawnedItem->Destroy();
+            }
+        }
+    }
+
+    SpawnedItems.Empty();
 }

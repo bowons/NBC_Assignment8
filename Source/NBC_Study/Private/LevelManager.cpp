@@ -8,6 +8,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "SpawnVolume.h"
 #include "CoinItem.h"
+#include "EnvironmentHazardManager.h"
 
 void ULevelManager::LoadLevelWavesData()
 {
@@ -47,49 +48,7 @@ void ULevelManager::LoadLevelWavesData()
 
 void ULevelManager::OnWaveTimeUp()
 {
-    if (GetWorld())
-    {
-        GetWorld()->GetTimerManager().ClearTimer(WaveTimerHandle);
-    }
-
-    if (GameInstance)
-    {
-        USpartaGameInstance* SpartaGameInstance = Cast<USpartaGameInstance>(GameInstance);
-        if (SpartaGameInstance)
-        {
-            CurrentWaveIndex++;
-
-            if (TArray<FLevelItemRow>* WavesPtr = LevelWavesMap.Find(CurrentLevelIndex))
-            {
-
-                if (CurrentWaveIndex < WavesPtr->Num())
-                {
-                    StartWave(CurrentWaveIndex);
-                    SpartaGameInstance->CurrentWaveIndex = CurrentWaveIndex;
-                }
-                else
-                {
-                    OnLevelComplete.Broadcast();
-                }
-            }
-            else
-            {
-                UE_LOG(LogTemp, Error, TEXT("LevelManager::OnWaveTimeUp - No waves found for level %d"), CurrentLevelIndex);
-                return;
-            }
-        } 
-        else
-        {
-            UE_LOG(LogTemp, Error, TEXT("LevelManager::OnWaveTimeUp - Failed to cast GameInstance!"));
-            return;
-        }
-    } 
-    else
-    {
-        UE_LOG(LogTemp, Error, TEXT("LevelManager::OnWaveTimeUp - GameInstance is nullptr!"));
-        return;
-    }
-
+    CompleteCurrentWave();
 }
 
 void ULevelManager::Initialize(UDataTable* InDataTable, ASpawnVolume* InSpawnVolume, UGameInstance* InGameInstance)
@@ -117,12 +76,25 @@ void ULevelManager::StartWave(int32 WaveIndex)
     {
         int32 ItemSpawnCount = LevelItemRow->ItemCount;
 
+        UE_LOG(LogTemp, Warning, TEXT("Wave %d Start!"), WaveIndex + 1);
+
         for (int32 i = 0; i < ItemSpawnCount; ++i)
         {
             if (SpawnVolume)
             {
                 AActor* SpawnedActor = SpawnVolume->SpawnRandomItem();
                 OnItemSpawned.Broadcast(SpawnedActor);
+            }
+        }
+
+        TArray<AActor*> FoundManagers;
+        UGameplayStatics::GetAllActorsOfClass(GetWorld(), AEnvironmentHazardManager::StaticClass(), FoundManagers);
+        if (FoundManagers.Num() > 0)
+        {
+            AEnvironmentHazardManager* HazardManager = Cast<AEnvironmentHazardManager>(FoundManagers[0]);
+            if (HazardManager)
+            {
+                HazardManager->OnWaveStart(WaveIndex);
             }
         }
 
@@ -212,4 +184,62 @@ float ULevelManager::GetRemainingTime() const
     }
 
     return GetWorld()->GetTimerManager().GetTimerRemaining(WaveTimerHandle);
+}
+
+bool ULevelManager::CompleteCurrentWave()
+{
+    TArray<AActor*> FoundManagers;
+    UGameplayStatics::GetAllActorsOfClass(GetWorld(), AEnvironmentHazardManager::StaticClass(), FoundManagers);
+    if (FoundManagers.Num() > 0)
+    {
+        AEnvironmentHazardManager* HazardManager = Cast<AEnvironmentHazardManager>(FoundManagers[0]);
+        if (HazardManager)
+        {
+            HazardManager->OnWaveEnd();
+        }
+    }
+
+    if (GetWorld())
+    {
+        GetWorld()->GetTimerManager().ClearTimer(WaveTimerHandle);
+    }
+
+    if (!GameInstance)
+    {
+        UE_LOG(LogTemp, Error, TEXT("LevelManager::CompleteCurrentWave - GameInstance is nullptr!"));
+        return false;
+    }
+
+    USpartaGameInstance* SpartaGameInstance = Cast<USpartaGameInstance>(GameInstance);
+    if (!SpartaGameInstance)
+    {
+        UE_LOG(LogTemp, Error, TEXT("LevelManager::CompleteCurrentWave - Failed to cast GameInstance!"));
+        return false;
+    }
+
+    CurrentWaveIndex++;
+
+    TArray<FLevelItemRow>* WavesPtr = LevelWavesMap.Find(CurrentLevelIndex + 1);
+    if (!WavesPtr)
+    {
+        UE_LOG(LogTemp, Error, TEXT("LevelManager::CompleteCurrentWave - No waves found for level %d"), CurrentLevelIndex + 1);
+        return false;
+    }
+
+    if (CurrentWaveIndex < WavesPtr->Num())
+    {
+        // 다음 웨이브 존재
+        if (SpawnVolume)
+        {
+            SpawnVolume->ClearAllSpawnedItems();
+        }
+
+        StartWave(CurrentWaveIndex);
+        SpartaGameInstance->CurrentWaveIndex = CurrentWaveIndex;
+        return true;
+    }
+
+    // 마지막 웨이브 완료
+    OnLevelComplete.Broadcast();
+    return false;
 }

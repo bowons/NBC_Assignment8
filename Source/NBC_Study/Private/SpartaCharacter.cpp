@@ -9,6 +9,8 @@
 #include "Components/WidgetComponent.h"
 #include "Components/TextBlock.h"
 #include "SpartaGameState.h"
+#include "DebuffManagerComponent.h"
+#include "DebuffManagerComponent.h"
 
 // Sets default values
 ASpartaCharacter::ASpartaCharacter()
@@ -38,11 +40,14 @@ ASpartaCharacter::ASpartaCharacter()
     NormalSpeed = 600.0f;
     SprintSpeedMultiplier = 1.5f;
     SprintSpeed = NormalSpeed * SprintSpeedMultiplier;
+    bIsSprinting = false;
 
     GetCharacterMovement()->MaxWalkSpeed = NormalSpeed;
 
     MaxHealth = 100.0f;
     Health = MaxHealth;
+
+    DebuffManager = CreateDefaultSubobject<UDebuffManagerComponent>(TEXT("DebuffManager"));
 }
 
 void ASpartaCharacter::BeginPlay()
@@ -139,20 +144,45 @@ void ASpartaCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 
 void ASpartaCharacter::Move(const FInputActionValue& value)
 {
-    if (!Controller) return;
-    // Value는 Axis2D로 설정된 IA_Move의 입력값 (WASD)을 담고 있음
-    // 예) (X=1, Y=0) → 전진 / (X=-1, Y=0) → 후진 / (X=0, Y=1) → 오른쪽 / (X=0, Y=-1) → 왼쪽
-    const FVector2D MoveInput = value.Get<FVector2D>();
+    FVector2D MovementVector = value.Get<FVector2D>();
 
-    if (!FMath::IsNearlyZero(MoveInput.X))
+    if (MovementVector.Length() > 1.0f)
     {
-        AddMovementInput(GetActorForwardVector(), MoveInput.X);
+        MovementVector.Normalize();
     }
 
-    if (!FMath::IsNearlyZero(MoveInput.Y))
+    if (bIsInputReversed)
     {
-        AddMovementInput(GetActorRightVector(), MoveInput.Y);
+        MovementVector *= -1.0f;
     }
+
+    if (Controller != nullptr)
+    {
+        const FRotator Rotation = Controller->GetControlRotation();
+        const FRotator YawRotation(0, Rotation.Yaw, 0);
+
+        const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+        const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+
+        AddMovementInput(ForwardDirection, MovementVector.X);
+        AddMovementInput(RightDirection, MovementVector.Y);
+    }
+
+
+    //if (!Controller) return;
+    //// Value는 Axis2D로 설정된 IA_Move의 입력값 (WASD)을 담고 있음
+    //// 예) (X=1, Y=0) → 전진 / (X=-1, Y=0) → 후진 / (X=0, Y=1) → 오른쪽 / (X=0, Y=-1) → 왼쪽
+    //const FVector2D MoveInput = value.Get<FVector2D>();
+
+    //if (!FMath::IsNearlyZero(MoveInput.X))
+    //{
+    //    AddMovementInput(GetActorForwardVector(), MoveInput.X);
+    //}
+
+    //if (!FMath::IsNearlyZero(MoveInput.Y))
+    //{
+    //    AddMovementInput(GetActorRightVector(), MoveInput.Y);
+    //}
 }
 
 void ASpartaCharacter::StartJump(const FInputActionValue& value)
@@ -186,22 +216,20 @@ void ASpartaCharacter::Look(const FInputActionValue& value)
 
 void ASpartaCharacter::StartSprint(const FInputActionValue& value)
 {
-    // Shift 키를 누른 순간 이 함수가 호출된다고 가정
-    // 스프린트 속도를 적용
-    if (GetCharacterMovement())
-    {
-        GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
-    }
+    if (bIsSprinting || !GetCharacterMovement()) return;
+
+    bIsSprinting = true;
+    float CurrentSpeed = GetCharacterMovement()->MaxWalkSpeed;
+    GetCharacterMovement()->MaxWalkSpeed = CurrentSpeed * SprintSpeedMultiplier;
 }
 
 void ASpartaCharacter::StopSprint(const FInputActionValue& value)
 {
-    // Shift 키를 뗀 순간 이 함수가 호출
-    // 평상시 속도로 복귀
-    if (GetCharacterMovement())
-    {
-        GetCharacterMovement()->MaxWalkSpeed = NormalSpeed;
-    }
+    if (!bIsSprinting || !GetCharacterMovement()) return;
+
+    bIsSprinting = false;
+    float CurrentSpeed = GetCharacterMovement()->MaxWalkSpeed;
+    GetCharacterMovement()->MaxWalkSpeed = CurrentSpeed / SprintSpeedMultiplier;
 }
 
 // 사망 처리 함수

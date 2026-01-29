@@ -184,7 +184,19 @@ void ASpartaGameState::OnCoinCollected()
 
     if (SpawnedCoinCount > 0 && CollectedCoinCount >= SpawnedCoinCount)
     {
-        HandleLevelComplete();
+        SpawnedCoinCount = 0;
+        CollectedCoinCount = 0;
+
+        if (LevelManager)
+        {
+            bool bHasNextWave = LevelManager->CompleteCurrentWave();
+
+            if (!bHasNextWave)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("Level completed by collecting all coins!"));
+            }
+        }
+        //HandleLevelComplete();
     }
 }
 

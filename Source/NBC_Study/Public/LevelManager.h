@@ -59,4 +59,6 @@ public:
     int32 GetCurrentWaveIndex() const { return CurrentWaveIndex; }
     int GetMaxLevels() const { return LevelWavesMap.Num(); }
     float GetRemainingTime() const;
+    
+    bool CompleteCurrentWave();
 };

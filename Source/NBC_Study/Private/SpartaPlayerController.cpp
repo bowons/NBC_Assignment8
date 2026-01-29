@@ -156,6 +156,7 @@ void ASpartaPlayerController::StartGame()
     if (USpartaGameInstance* SpartaGameInstance = Cast<USpartaGameInstance>(UGameplayStatics::GetGameInstance(this)))
     {
         SpartaGameInstance->CurrentLevelIndex = 0;
+        SpartaGameInstance->CurrentWaveIndex = 0;
         SpartaGameInstance->TotalScore = 0;
 
         UGameplayStatics::OpenLevel(this, FName("BasicLevel"));
